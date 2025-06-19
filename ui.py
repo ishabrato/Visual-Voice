@@ -2,7 +2,7 @@ import sys
 import csv
 import copy
 import itertools
-from collections import Counter
+from collections import deque, Counter
 import time
 
 import cv2 as cv
@@ -11,12 +11,12 @@ import mediapipe as mp
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QHBoxLayout,
                              QLabel, QPushButton, QTextEdit, QWidget, QFrame,
                              QDesktopWidget, QGraphicsDropShadowEffect, QStatusBar)
-from PyQt5.QtGui import QImage, QPixmap, QPainter, QPen, QColor, QFont
-from PyQt5.QtCore import Qt, QTimer, QRect
+from PyQt5.QtGui import QImage, QPixmap, QFont, QColor
+from PyQt5.QtCore import Qt, QTimer
 
+from model import KeyPointClassifier, PointHistoryClassifier
 from utils import CvFpsCalc
-from model import KeyPointClassifier
-from model import PointHistoryClassifier
+
 
 class StyledButton(QPushButton):
     def __init__(self, text):
@@ -24,20 +24,12 @@ class StyledButton(QPushButton):
         self.setFont(QFont("Arial", 14, QFont.Bold))
         self.setStyleSheet("""
             QPushButton {
-                background-color: #4CAF50;
-                color: white;
-                border: none;
-                padding: 10px 20px;
-                font-size: 16px;
-                border-radius: 5px;
+                background-color: #4CAF50; color: white; border: none;
+                padding: 10px 20px; font-size: 16px; border-radius: 5px;
                 font-weight: bold;
             }
-            QPushButton:hover {
-                background-color: #45a049;
-            }
-            QPushButton:pressed {
-                background-color: #3d8b40;
-            }
+            QPushButton:hover { background-color: #45a049; }
+            QPushButton:pressed { background-color: #3d8b40; }
         """)
 
 class HandGestureRecognitionApp(QMainWindow):
@@ -51,34 +43,22 @@ class HandGestureRecognitionApp(QMainWindow):
         self.VIDEO_HEIGHT = 720
 
         self.setGeometry(100, 100, self.WINDOW_WIDTH, self.WINDOW_HEIGHT)
-
-        self.setStyleSheet("""
-            QMainWindow {
-                background-color: #f0f0f0;
-            }
-        """)
+        self.setStyleSheet("QMainWindow { background-color: #f0f0f0; }")
 
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
-        self.statusBar().showMessage("Camera active. Waiting for gesture input...")
 
         central_widget = QWidget()
-        main_layout = QVBoxLayout()
+        main_layout = QVBoxLayout(central_widget)
         main_layout.setContentsMargins(40, 40, 40, 40)
         main_layout.setSpacing(30)
-        central_widget.setLayout(main_layout)
         self.setCentralWidget(central_widget)
 
         header = QLabel("✋ Visual Voice – Real-time Hand Gesture Recognition")
         header.setStyleSheet("""
             QLabel {
-                font-size: 28px;
-                font-weight: bold;
-                color: #333;
-                background-color: #4CAF50;
-                padding: 15px;
-                border-radius: 8px;
-                text-align: center;
+                font-size: 28px; font-weight: bold; color: #333;
+                padding: 15px; border-radius: 8px; background-color: #4CAF50;
             }
         """)
         header.setAlignment(Qt.AlignCenter)
@@ -89,13 +69,7 @@ class HandGestureRecognitionApp(QMainWindow):
 
         self.video_frame = QLabel()
         self.video_frame.setFixedSize(self.VIDEO_WIDTH, self.VIDEO_HEIGHT)
-        self.video_frame.setStyleSheet("""
-            QLabel {
-                border: 3px solid #4CAF50;
-                border-radius: 10px;
-                background-color: black;
-            }
-        """)
+        self.video_frame.setStyleSheet("QLabel { border: 3px solid #4CAF50; border-radius: 10px; background-color: black; }")
 
         video_shadow = QGraphicsDropShadowEffect()
         video_shadow.setBlurRadius(20)
@@ -107,32 +81,21 @@ class HandGestureRecognitionApp(QMainWindow):
         sentence_layout.setContentsMargins(20, 20, 20, 20)
         sentence_layout.setSpacing(20)
 
-        title_label = QLabel("Hand Gesture Sentence Builder")
-        title_label.setStyleSheet("""
-            QLabel {
-                font-size: 24px;
-                font-weight: bold;
-                color: #4CAF50;
-            }
-        """)
+        title_label = QLabel("Your Sentence")
+        title_label.setStyleSheet("QLabel { font-size: 24px; font-weight: bold; color: #4CAF50; }")
 
         self.sentence_display = QTextEdit()
         self.sentence_display.setReadOnly(True)
         self.sentence_display.setMinimumHeight(200)
         self.sentence_display.setStyleSheet("""
             QTextEdit {
-                background-color: white;
-                border: 2px solid #4CAF50;
-                border-radius: 10px;
-                font-size: 20px;
-                padding: 15px;
-                color: #333;
+                background-color: white; border: 2px solid #4CAF50; border-radius: 10px;
+                font-size: 22px; padding: 15px; color: #333;
             }
         """)
 
         self.copy_button = StyledButton("Copy Sentence")
         self.copy_button.clicked.connect(self.copy_sentence)
-
         self.clear_button = StyledButton("Clear Sentence")
         self.clear_button.clicked.connect(self.clear_sentence)
 
@@ -146,30 +109,33 @@ class HandGestureRecognitionApp(QMainWindow):
 
         content_layout.addWidget(self.video_frame, 2)
         content_layout.addLayout(sentence_layout, 1)
-
         main_layout.addLayout(content_layout)
 
         self.setup_hand_recognition()
+        self.init_sentence_builder()
 
+    def init_sentence_builder(self):
         self.current_sentence = []
-        self.last_gesture = None
-        self.last_gesture_time = 0
-        self.gesture_delay = 2
+        self.candidate_char = ""
+        self.last_added_char_time = 0
+        self.last_stable_gesture = None
+        self.stable_gesture_start_time = None
 
-        self.detection_box = QRect(self.VIDEO_WIDTH // 4, self.VIDEO_HEIGHT // 4,
-                                    self.VIDEO_WIDTH // 2, self.VIDEO_HEIGHT // 2)
+        self.GESTURE_BUFFER_SIZE = 15
+        self.STABILITY_THRESHOLD = 0.8
+        self.CONFIRMATION_TIME = 0.8
+        self.ADD_COOLDOWN = 1.5
+
+        self.gesture_buffer = deque(maxlen=self.GESTURE_BUFFER_SIZE)
+        self.sentence_display.setText("")
+        self.status_bar.showMessage("Ready. Hold a gesture to begin.")
 
     def setup_hand_recognition(self):
         self.cap = cv.VideoCapture(0)
         self.cap.set(cv.CAP_PROP_FRAME_WIDTH, self.VIDEO_WIDTH)
         self.cap.set(cv.CAP_PROP_FRAME_HEIGHT, self.VIDEO_HEIGHT)
 
-        actual_width = int(self.cap.get(cv.CAP_PROP_FRAME_WIDTH))
-        actual_height = int(self.cap.get(cv.CAP_PROP_FRAME_HEIGHT))
-        print(f"Actual Camera Resolution: {actual_width}x{actual_height}")
-
-        mp_hands = mp.solutions.hands
-        self.hands = mp_hands.Hands(
+        self.hands = mp.solutions.hands.Hands(
             static_image_mode=False,
             max_num_hands=1,
             min_detection_confidence=0.7,
@@ -177,10 +143,11 @@ class HandGestureRecognitionApp(QMainWindow):
         )
 
         self.keypoint_classifier = KeyPointClassifier()
-        self.point_history_classifier = PointHistoryClassifier()
-
         with open('model/keypoint_classifier/keypoint_classifier_label.csv', encoding='utf-8-sig') as f:
             self.keypoint_classifier_labels = [row[0] for row in csv.reader(f)]
+
+        # ### FIX: Changed from "Open" to "SPACE". Ensure this matches your label file exactly. ###
+        self.SPACE_GESTURE = "SPACE"
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_frame)
@@ -188,112 +155,127 @@ class HandGestureRecognitionApp(QMainWindow):
 
     def update_frame(self):
         ret, frame = self.cap.read()
-        if not ret:
-            return
+        if not ret: return
 
         frame = cv.flip(frame, 1)
-        frame_rgb = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
+        image_rgb = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
+        results = self.hands.process(image_rgb)
 
-        cv.rectangle(frame_rgb,
-                     (self.detection_box.x(), self.detection_box.y()),
-                     (self.detection_box.x() + self.detection_box.width(),
-                      self.detection_box.y() + self.detection_box.height()),
-                     (0, 255, 0), 2)
-
-        text_x = self.detection_box.x() + 10
-        text_y = self.detection_box.y() - 10
-        cv.putText(frame_rgb, "INPUT AREA", (text_x, text_y), cv.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2, cv.LINE_AA)
-
-        results = self.hands.process(frame_rgb)
-
-        hand_in_box = False
+        current_gesture = "None"
         if results.multi_hand_landmarks:
-            for hand_landmarks in results.multi_hand_landmarks:
-                landmark_list = self.calc_landmark_list(frame_rgb, hand_landmarks)
-                hand_in_box = self.is_hand_fully_in_detection_box(landmark_list)
+            for hand_landmarks, handedness in zip(results.multi_hand_landmarks, results.multi_handedness):
+                brect = self.calc_bounding_rect(image_rgb, hand_landmarks)
+                landmark_list = self.calc_landmark_list(image_rgb, hand_landmarks)
+                pre_processed_list = self.pre_process_landmark(landmark_list)
 
-                if hand_in_box:
-                    pre_processed_landmark_list = self.pre_process_landmark(landmark_list)
-                    reshaped_input = np.array(pre_processed_landmark_list, dtype=np.float32).reshape(1, 21, 2)
-                    hand_sign_id = self.keypoint_classifier(reshaped_input)
-                    gesture = self.keypoint_classifier_labels[hand_sign_id]
-                    self.update_sentence(gesture)
-                    self.draw_landmarks(frame_rgb, landmark_list)
+                reshaped_input = np.array(pre_processed_list, dtype=np.float32).reshape(1, 21, 2)
+                hand_sign_id = self.keypoint_classifier(reshaped_input)
+                current_gesture = self.keypoint_classifier_labels[hand_sign_id]
 
-        h, w, ch = frame_rgb.shape
-        bytes_per_line = ch * w
-        qt_image = QImage(frame_rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
-        pixmap = QPixmap.fromImage(qt_image)
+                image_rgb = self.draw_bounding_rect(image_rgb, brect)
+                image_rgb = self.draw_landmarks(image_rgb, landmark_list)
+                image_rgb = self.draw_info_text(image_rgb, brect, handedness, current_gesture)
 
-        scaled_pixmap = pixmap.scaled(
-            self.VIDEO_WIDTH, self.VIDEO_HEIGHT,
-            Qt.IgnoreAspectRatio,
-            Qt.FastTransformation
-        )
+        self.process_gesture_for_sentence(current_gesture)
 
-        self.video_frame.setPixmap(scaled_pixmap)
-        self.video_frame.setAlignment(Qt.AlignCenter)
+        if self.candidate_char:
+            cv.putText(image_rgb, f"Candidate: {self.candidate_char}", (10, 60),
+                       cv.FONT_HERSHEY_TRIPLEX, 2, (0, 0, 0), 6, cv.LINE_AA)
+            cv.putText(image_rgb, f"Candidate: {self.candidate_char}", (10, 60),
+                       cv.FONT_HERSHEY_TRIPLEX, 2, (255, 255, 255), 2, cv.LINE_AA)
 
-    def is_hand_fully_in_detection_box(self, landmark_list):
-        for landmark in landmark_list:
-            if not (self.detection_box.x() <= landmark[0] <= self.detection_box.x() + self.detection_box.width() and
-                    self.detection_box.y() <= landmark[1] <= self.detection_box.y() + self.detection_box.height()):
-                return False
-        return True
+        h, w, ch = image_rgb.shape
+        qt_image = QImage(image_rgb.data, w, h, ch * w, QImage.Format_RGB888)
+        self.video_frame.setPixmap(QPixmap.fromImage(qt_image).scaled(self.VIDEO_WIDTH, self.VIDEO_HEIGHT, Qt.KeepAspectRatio))
 
-    def update_sentence(self, gesture):
-        current_time = time.time()
-        if gesture != self.last_gesture:
-            if (current_time - self.last_gesture_time) >= self.gesture_delay:
-                if gesture != 'None':
-                    if gesture == 'SPACE':
-                        self.current_sentence.append(' ')
-                    else:
-                        self.current_sentence.append(gesture)
-                    self.sentence_display.setText(''.join(self.current_sentence))
-                self.last_gesture = gesture
-                self.last_gesture_time = current_time
+    def process_gesture_for_sentence(self, gesture):
+        if gesture != "None":
+            self.gesture_buffer.append(gesture)
+        else:
+            self.last_stable_gesture = None
+            self.stable_gesture_start_time = None
+            self.candidate_char = ""
+            return
+
+        if len(self.gesture_buffer) < self.GESTURE_BUFFER_SIZE:
+            return
+
+        most_common_gesture, count = Counter(self.gesture_buffer).most_common(1)[0]
+
+        if count / self.GESTURE_BUFFER_SIZE >= self.STABILITY_THRESHOLD:
+            if most_common_gesture != self.last_stable_gesture:
+                self.last_stable_gesture = most_common_gesture
+                self.stable_gesture_start_time = time.time()
+                self.candidate_char = most_common_gesture
+
+            if self.stable_gesture_start_time and (time.time() - self.stable_gesture_start_time) > self.CONFIRMATION_TIME:
+                if (time.time() - self.last_added_char_time) > self.ADD_COOLDOWN:
+
+                    char_to_add = ' ' if self.last_stable_gesture == self.SPACE_GESTURE else self.last_stable_gesture
+                    self.current_sentence.append(char_to_add)
+                    self.sentence_display.setText("".join(self.current_sentence))
+
+                    # ### FIX: Improved status bar message for clarity ###
+                    status_message = "Added: Space" if char_to_add == ' ' else f"Added: '{char_to_add}'"
+                    self.statusBar().showMessage(status_message, 3000)
+
+                    self.last_added_char_time = time.time()
+                    self.stable_gesture_start_time = None
+                    self.last_stable_gesture = None
+                    self.candidate_char = ""
+                    self.gesture_buffer.clear()
+        else:
+            self.last_stable_gesture = None
+            self.stable_gesture_start_time = None
+            self.candidate_char = ""
 
     def copy_sentence(self):
-        clipboard = QApplication.clipboard()
-        clipboard.setText(self.sentence_display.toPlainText())
+        QApplication.clipboard().setText(self.sentence_display.toPlainText())
+        self.statusBar().showMessage("Sentence copied to clipboard!", 3000)
 
     def clear_sentence(self):
-        self.current_sentence = []
-        self.sentence_display.clear()
-        self.last_gesture = None
+        self.init_sentence_builder()
 
     def calc_landmark_list(self, image, landmarks):
-        image_width, image_height = image.shape[1], image.shape[0]
-        landmark_point = []
-
-        for landmark in landmarks.landmark:
-            landmark_x = min(int(landmark.x * image_width), image_width - 1)
-            landmark_y = min(int(landmark.y * image_height), image_height - 1)
-            landmark_point.append([landmark_x, landmark_y])
-
-        return landmark_point
+        return [[min(int(lm.x * image.shape[1]), image.shape[1] - 1), min(int(lm.y * image.shape[0]), image.shape[0] - 1)] for lm in landmarks.landmark]
 
     def pre_process_landmark(self, landmark_list):
         temp_landmark_list = copy.deepcopy(landmark_list)
+        base_x, base_y = temp_landmark_list[0]
+        for lm in temp_landmark_list:
+            lm[0] -= base_x
+            lm[1] -= base_y
+        flat_list = list(itertools.chain.from_iterable(temp_landmark_list))
+        max_value = max(map(abs, flat_list))
+        if max_value == 0: return [0.0] * len(flat_list)
+        return [n / max_value for n in flat_list]
 
-        base_x, base_y = temp_landmark_list[0][0], temp_landmark_list[0][1]
+    def calc_bounding_rect(self, image, landmarks):
+        landmark_array = np.array([[lm.x * image.shape[1], lm.y * image.shape[0]] for lm in landmarks.landmark], dtype=np.int32)
+        x, y, w, h = cv.boundingRect(landmark_array)
+        return [x, y, x + w, y + h]
 
-        for landmark_point in temp_landmark_list:
-            landmark_point[0] -= base_x
-            landmark_point[1] -= base_y
-
-        temp_landmark_list = list(itertools.chain.from_iterable(temp_landmark_list))
-        max_value = max(list(map(abs, temp_landmark_list)))
-
-        def normalize_(n):
-            return n / max_value
-
-        return list(map(normalize_, temp_landmark_list))
+    def draw_info_text(self, image, brect, handedness, hand_sign_text):
+        cv.rectangle(image, (brect[0], brect[1]), (brect[2], brect[1] - 22), (0, 0, 0), -1)
+        info_text = f"{handedness.classification[0].label[0:]}: {hand_sign_text}"
+        cv.putText(image, info_text, (brect[0] + 5, brect[1] - 4),
+                   cv.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv.LINE_AA)
+        return image
 
     def draw_landmarks(self, image, landmark_point):
-        for index, landmark in enumerate(landmark_point):
-            cv.circle(image, (landmark[0], landmark[1]), 5, (255, 0, 0), -1)
+        if landmark_point:
+            connections = mp.solutions.hands.HAND_CONNECTIONS
+            for connection in connections:
+                start_idx, end_idx = connection
+                if start_idx < len(landmark_point) and end_idx < len(landmark_point):
+                    cv.line(image, tuple(landmark_point[start_idx]), tuple(landmark_point[end_idx]), (255, 255, 255), 2)
+            for point in landmark_point:
+                cv.circle(image, tuple(point), 5, (0, 255, 0), -1)
+        return image
+
+    def draw_bounding_rect(self, image, brect):
+        cv.rectangle(image, (brect[0], brect[1]), (brect[2], brect[3]), (0, 255, 0), 2)
+        return image
 
     def closeEvent(self, event):
         self.cap.release()
