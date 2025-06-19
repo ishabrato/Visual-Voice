@@ -99,8 +99,15 @@ class HandGestureRecognitionApp(QMainWindow):
         self.clear_button = StyledButton("Clear Sentence")
         self.clear_button.clicked.connect(self.clear_sentence)
 
+        ### NEW: Create the Backspace button ###
+        self.backspace_button = StyledButton("Backspace")
+        self.backspace_button.clicked.connect(self.backspace_sentence)
+
+
         button_layout = QHBoxLayout()
         button_layout.addWidget(self.copy_button)
+        ### NEW: Add the Backspace button to the layout ###
+        button_layout.addWidget(self.backspace_button)
         button_layout.addWidget(self.clear_button)
 
         sentence_layout.addWidget(title_label)
@@ -146,7 +153,6 @@ class HandGestureRecognitionApp(QMainWindow):
         with open('model/keypoint_classifier/keypoint_classifier_label.csv', encoding='utf-8-sig') as f:
             self.keypoint_classifier_labels = [row[0] for row in csv.reader(f)]
 
-        # ### FIX: Changed from "Open" to "SPACE". Ensure this matches your label file exactly. ###
         self.SPACE_GESTURE = "SPACE"
 
         self.timer = QTimer(self)
@@ -215,7 +221,6 @@ class HandGestureRecognitionApp(QMainWindow):
                     self.current_sentence.append(char_to_add)
                     self.sentence_display.setText("".join(self.current_sentence))
 
-                    # ### FIX: Improved status bar message for clarity ###
                     status_message = "Added: Space" if char_to_add == ' ' else f"Added: '{char_to_add}'"
                     self.statusBar().showMessage(status_message, 3000)
 
@@ -228,6 +233,13 @@ class HandGestureRecognitionApp(QMainWindow):
             self.last_stable_gesture = None
             self.stable_gesture_start_time = None
             self.candidate_char = ""
+
+    ### NEW: Function to handle the backspace button click ###
+    def backspace_sentence(self):
+        if self.current_sentence:
+            self.current_sentence.pop()
+            self.sentence_display.setText("".join(self.current_sentence))
+            self.statusBar().showMessage("Backspace", 2000)
 
     def copy_sentence(self):
         QApplication.clipboard().setText(self.sentence_display.toPlainText())
@@ -246,7 +258,7 @@ class HandGestureRecognitionApp(QMainWindow):
             lm[0] -= base_x
             lm[1] -= base_y
         flat_list = list(itertools.chain.from_iterable(temp_landmark_list))
-        max_value = max(map(abs, flat_list))
+        max_value = max(map(abs, flat_list), default=0)
         if max_value == 0: return [0.0] * len(flat_list)
         return [n / max_value for n in flat_list]
 
