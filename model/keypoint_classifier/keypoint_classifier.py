@@ -1,8 +1,5 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
 import numpy as np
 import tensorflow as tf
-
 
 class KeyPointClassifier(object):
     def __init__(
@@ -12,44 +9,27 @@ class KeyPointClassifier(object):
     ):
         self.interpreter = tf.lite.Interpreter(model_path=model_path,
                                                num_threads=num_threads)
-
         self.interpreter.allocate_tensors()
         self.input_details = self.interpreter.get_input_details()
         self.output_details = self.interpreter.get_output_details()
 
-    # def __call__(
-    #     self,
-    #     landmark_list,
-    # ):
-    #     input_details_tensor_index = self.input_details[0]['index']
-    #     self.interpreter.set_tensor(
-    #         input_details_tensor_index,
-    #         np.array([landmark_list], dtype=np.float32))
-    #     self.interpreter.invoke()
-
-    #     output_details_tensor_index = self.output_details[0]['index']
-
-    #     result = self.interpreter.get_tensor(output_details_tensor_index)
-
-    #     result_index = np.argmax(np.squeeze(result))
-
-    #     return result_index
-
     def __call__(
-    self,
-    landmark_list,
-):
+        self,
+        landmark_list,
+    ):
         input_details_tensor_index = self.input_details[0]['index']
-
-        input_data = np.array(landmark_list, dtype=np.float32)
-        if input_data.ndim == 2:
-            input_data = np.expand_dims(input_data, axis=0)
-
-        self.interpreter.set_tensor(input_details_tensor_index, input_data)
+        self.interpreter.set_tensor(
+            input_details_tensor_index,
+            landmark_list) # The input is already shaped correctly from the UI
         self.interpreter.invoke()
 
         output_details_tensor_index = self.output_details[0]['index']
+
         result = self.interpreter.get_tensor(output_details_tensor_index)
 
-        result_index = np.argmax(np.squeeze(result))
-        return result_index
+        # Get the highest probability (confidence) and its index (class ID)
+        result_array = np.squeeze(result)
+        result_index = np.argmax(result_array)
+        confidence = result_array[result_index]
+
+        return result_index, confidence

@@ -98,15 +98,11 @@ class HandGestureRecognitionApp(QMainWindow):
         self.copy_button.clicked.connect(self.copy_sentence)
         self.clear_button = StyledButton("Clear Sentence")
         self.clear_button.clicked.connect(self.clear_sentence)
-
-        ### NEW: Create the Backspace button ###
         self.backspace_button = StyledButton("Backspace")
         self.backspace_button.clicked.connect(self.backspace_sentence)
 
-
         button_layout = QHBoxLayout()
         button_layout.addWidget(self.copy_button)
-        ### NEW: Add the Backspace button to the layout ###
         button_layout.addWidget(self.backspace_button)
         button_layout.addWidget(self.clear_button)
 
@@ -128,9 +124,9 @@ class HandGestureRecognitionApp(QMainWindow):
         self.last_stable_gesture = None
         self.stable_gesture_start_time = None
 
-        self.GESTURE_BUFFER_SIZE = 15
-        self.STABILITY_THRESHOLD = 0.8
-        self.CONFIRMATION_TIME = 0.8
+        self.GESTURE_BUFFER_SIZE = 20
+        self.STABILITY_THRESHOLD = 1
+        self.CONFIRMATION_TIME = 1
         self.ADD_COOLDOWN = 1.5
 
         self.gesture_buffer = deque(maxlen=self.GESTURE_BUFFER_SIZE)
@@ -175,12 +171,22 @@ class HandGestureRecognitionApp(QMainWindow):
                 pre_processed_list = self.pre_process_landmark(landmark_list)
 
                 reshaped_input = np.array(pre_processed_list, dtype=np.float32).reshape(1, 21, 2)
-                hand_sign_id = self.keypoint_classifier(reshaped_input)
-                current_gesture = self.keypoint_classifier_labels[hand_sign_id]
 
+                # --- NEW: Get both the ID and confidence ---
+                hand_sign_id, confidence = self.keypoint_classifier(reshaped_input)
+
+                # --- NEW: Apply the confidence threshold ---
+                CONFIDENCE_THRESHOLD = 0.85 # You can tune this value (e.g., 0.8, 0.9)
+
+                if confidence > CONFIDENCE_THRESHOLD:
+                    current_gesture = self.keypoint_classifier_labels[hand_sign_id]
+                else:
+                    current_gesture = "None"
+
+                # --- NEW: Pass confidence score for display ---
                 image_rgb = self.draw_bounding_rect(image_rgb, brect)
                 image_rgb = self.draw_landmarks(image_rgb, landmark_list)
-                image_rgb = self.draw_info_text(image_rgb, brect, handedness, current_gesture)
+                image_rgb = self.draw_info_text(image_rgb, brect, handedness, current_gesture, confidence)
 
         self.process_gesture_for_sentence(current_gesture)
 
@@ -234,7 +240,6 @@ class HandGestureRecognitionApp(QMainWindow):
             self.stable_gesture_start_time = None
             self.candidate_char = ""
 
-    ### NEW: Function to handle the backspace button click ###
     def backspace_sentence(self):
         if self.current_sentence:
             self.current_sentence.pop()
@@ -267,9 +272,14 @@ class HandGestureRecognitionApp(QMainWindow):
         x, y, w, h = cv.boundingRect(landmark_array)
         return [x, y, x + w, y + h]
 
-    def draw_info_text(self, image, brect, handedness, hand_sign_text):
+    # --- NEW: Updated to accept and display confidence ---
+    def draw_info_text(self, image, brect, handedness, hand_sign_text, confidence):
         cv.rectangle(image, (brect[0], brect[1]), (brect[2], brect[1] - 22), (0, 0, 0), -1)
-        info_text = f"{handedness.classification[0].label[0:]}: {hand_sign_text}"
+
+        info_text = f"{handedness.classification[0].label[0:]}: "
+        if hand_sign_text != "None":
+            info_text += f"{hand_sign_text} ({confidence:.2f})"
+
         cv.putText(image, info_text, (brect[0] + 5, brect[1] - 4),
                    cv.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv.LINE_AA)
         return image
