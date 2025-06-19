@@ -106,7 +106,7 @@ This project provides a solid foundation. Here are some ideas for taking it to t
 
 ## 🤝 Contributing
 
-Contributions, issues, and feature requests are welcome! Feel free to check the [issues page](https://github.com/YOUR_USERNAME/hand-gesture-recognition/issues).
+Contributions, issues, and feature requests are welcome! Feel free to check the [issues page](https://github.com/ishabrato/Visual-Voice/issues).
 
 ## 📄 License
 
