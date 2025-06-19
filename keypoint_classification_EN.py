@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
+# In[307]:
 
 
 import csv
@@ -15,7 +15,7 @@ RANDOM_SEED = 42
 
 # # Specify each path
 
-# In[2]:
+# In[308]:
 
 
 dataset = 'model/keypoint_classifier/keypoint.csv'
@@ -25,40 +25,52 @@ tflite_save_path = 'model/keypoint_classifier/keypoint_classifier.tflite'
 
 # # Set number of classes
 
-# In[3]:
+# In[309]:
 
 
-NUM_CLASSES = 26
+NUM_CLASSES = 27
 
 
 # # Dataset reading
 
-# In[4]:
+# In[310]:
 
 
 X_dataset = np.loadtxt(dataset, delimiter=',', dtype='float32', usecols=list(range(1, (21 * 2) + 1)))
 
 
-# In[5]:
+# In[311]:
 
 
 y_dataset = np.loadtxt(dataset, delimiter=',', dtype='int32', usecols=(0))
 
 
-# In[6]:
+# In[312]:
 
 
-X_train, X_test, y_train, y_test = train_test_split(X_dataset, y_dataset, train_size=0.75, random_state=RANDOM_SEED)
+X_train, X_test, y_train, y_test = train_test_split(X_dataset, y_dataset, train_size=0.70, random_state=RANDOM_SEED)
+
+
+# In[313]:
+
+
+def reshape_for_lstm(data):
+    samples = data.shape[0]
+    return data.reshape(samples, 21, 2)  # 21 keypoints as "time steps", 2 features (x,y) per step
+
+X_train_reshaped = reshape_for_lstm(X_train)
+X_test_reshaped = reshape_for_lstm(X_test)
 
 
 # # Model building
 
-# In[7]:
+# In[315]:
 
 
 model = tf.keras.models.Sequential([
-    tf.keras.layers.Input((21 * 2, )),
-    tf.keras.layers.Dropout(0.2),
+    tf.keras.layers.InputLayer(input_shape=(21, 2)),
+    tf.keras.layers.LSTM(32),
+    tf.keras.layers.Dropout(0.3),
     tf.keras.layers.Dense(20, activation='relu'),
     tf.keras.layers.Dropout(0.4),
     tf.keras.layers.Dense(10, activation='relu'),
@@ -66,26 +78,23 @@ model = tf.keras.models.Sequential([
 ])
 
 
-# In[8]:
+# In[316]:
 
 
 model.summary()  # tf.keras.utils.plot_model(model, show_shapes=True)
 
 
-# In[9]:
+# In[317]:
 
 
-# Model checkpoint callback
 cp_callback = tf.keras.callbacks.ModelCheckpoint(
     model_save_path, verbose=1, save_weights_only=False)
-# Callback for early stopping
 es_callback = tf.keras.callbacks.EarlyStopping(patience=20, verbose=1)
 
 
-# In[10]:
+# In[318]:
 
 
-# Model compilation
 model.compile(
     optimizer='adam',
     loss='sparse_categorical_crossentropy',
@@ -95,51 +104,50 @@ model.compile(
 
 # # Model training
 
-# In[11]:
+# In[319]:
 
 
 model.fit(
-    X_train,
+    X_train_reshaped,  # Use reshaped data
     y_train,
     epochs=1000,
     batch_size=128,
-    validation_data=(X_test, y_test),
+    validation_data=(X_test_reshaped, y_test),  # Use reshaped test data
     callbacks=[cp_callback, es_callback]
 )
 
 
-# In[12]:
+# In[320]:
 
 
-# Model evaluation
-val_loss, val_acc = model.evaluate(X_test, y_test, batch_size=128)
+val_loss, val_acc = model.evaluate(X_test_reshaped, y_test, batch_size=128)
 
 
-# In[13]:
+# In[321]:
 
 
-# Loading the saved model
 model = tf.keras.models.load_model(model_save_path)
 
 
-# In[14]:
+# In[322]:
 
 
-# Inference test
-predict_result = model.predict(np.array([X_test[0]]))
+test_sample = X_test[0].reshape(1, 21, 2)
+predict_result = model.predict(test_sample)
 print(np.squeeze(predict_result))
 print(np.argmax(np.squeeze(predict_result)))
 
 
 # # Confusion matrix
 
-# In[15]:
+# In[323]:
 
 
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-from sklearn.metrics import confusion_matrix, classification_report
+from sklearn.metrics import confusion_matrix,classification_report
+
 
 def print_confusion_matrix(y_true, y_pred, report=True):
     labels = sorted(list(set(y_true)))
@@ -156,7 +164,7 @@ def print_confusion_matrix(y_true, y_pred, report=True):
         print('Classification Report')
         print(classification_report(y_test, y_pred))
 
-Y_pred = model.predict(X_test)
+Y_pred = model.predict(X_test_reshaped)
 y_pred = np.argmax(Y_pred, axis=1)
 
 print_confusion_matrix(y_test, y_pred)
@@ -164,55 +172,68 @@ print_confusion_matrix(y_test, y_pred)
 
 # # Convert to model for Tensorflow-Lite
 
-# In[16]:
+# In[324]:
 
 
-# Save as a model dedicated to inference
 model.save(model_save_path, include_optimizer=False)
 
 
-# In[17]:
+# In[325]:
 
-
-# Transform model (quantization)
 
 converter = tf.lite.TFLiteConverter.from_keras_model(model)
+
+
+converter.experimental_enable_resource_variables = True
+
+converter.target_spec.supported_ops = [
+    tf.lite.OpsSet.TFLITE_BUILTINS,
+    tf.lite.OpsSet.SELECT_TF_OPS
+]
+
+converter._experimental_lower_tensor_list_ops = False
+
 converter.optimizations = [tf.lite.Optimize.DEFAULT]
+
 tflite_quantized_model = converter.convert()
 
-open(tflite_save_path, 'wb').write(tflite_quantized_model)
+
+with open(tflite_save_path, 'wb') as f:
+    f.write(tflite_quantized_model)
+
+print(f"TFLite model saved to: {tflite_save_path}")
 
 
 # # Inference test
 
-# In[18]:
+# In[326]:
 
 
 interpreter = tf.lite.Interpreter(model_path=tflite_save_path)
 interpreter.allocate_tensors()
 
 
-# In[19]:
+# In[327]:
 
 
-# Get I / O tensor
 input_details = interpreter.get_input_details()
 output_details = interpreter.get_output_details()
 
 
-# In[20]:
+# In[328]:
 
 
-interpreter.set_tensor(input_details[0]['index'], np.array([X_test[0]]))
+interpreter.set_tensor(input_details[0]['index'], X_test_reshaped[0:1])
 
 
-# In[21]:
+# In[329]:
 
 
-get_ipython().run_cell_magic('time', '', "# Inference implementation\ninterpreter.invoke()\ntflite_results = interpreter.get_tensor(output_details[0]['index'])\n")
+interpreter.invoke()
+tflite_results = interpreter.get_tensor(output_details[0]['index'])
 
 
-# In[22]:
+# In[330]:
 
 
 print(np.squeeze(tflite_results))

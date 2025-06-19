@@ -157,7 +157,9 @@ def main():
                       logging_csv(number, mode, pre_processed_landmark_list,
                             pre_processed_point_history_list)
 
-                hand_sign_id = keypoint_classifier(pre_processed_landmark_list)
+                # hand_sign_id = keypoint_classifier(pre_processed_landmark_list)
+                reshaped_input = np.array(pre_processed_landmark_list, dtype=np.float32).reshape(1, 21, 2)
+                hand_sign_id = keypoint_classifier(reshaped_input)
                 if hand_sign_id == 2:
                     point_history.append(landmark_list[8])
                 else:
