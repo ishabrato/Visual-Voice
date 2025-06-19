@@ -44,8 +44,7 @@ You need Python 3.8+ installed on your system. You can check your Python version
 1. **Clone the Repository**
    `git clone https://github.com/ishabrato/Visual-Voice`
    `cd Visual-Voice`
-2. **Create a Virtual Environment** (Recommended)
-   This keeps the project's dependencies isolated from your system's Python installation.
+2. **Create a Virtual Environment** (Recommended).
 
    ### For Windows
 
