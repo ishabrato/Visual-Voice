@@ -10,12 +10,59 @@ import numpy as np
 import mediapipe as mp
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QHBoxLayout,
                              QLabel, QPushButton, QTextEdit, QWidget, QFrame,
-                             QDesktopWidget, QGraphicsDropShadowEffect, QStatusBar)
+                             QDesktopWidget, QGraphicsDropShadowEffect, QStatusBar,
+                             QDialog, QListWidget, QAbstractItemView, QListWidgetItem, QMessageBox)
 from PyQt5.QtGui import QImage, QPixmap, QFont, QColor
 from PyQt5.QtCore import Qt, QTimer
 
 from model import KeyPointClassifier, PointHistoryClassifier
-from utils import CvFpsCalc
+from utils import CvFpsCalc, camera_utils
+
+
+class CameraSettingsDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Camera Settings")
+        self.setFixedSize(400, 200)
+
+        layout = QVBoxLayout()
+
+        self.camera_list_widget = QListWidget()
+        self.camera_list_widget.setSelectionMode(QAbstractItemView.SingleSelection)
+        layout.addWidget(self.camera_list_widget)
+
+        self.populate_camera_list()
+
+        save_button = QPushButton("Save Selection")
+        save_button.clicked.connect(self.save_selection)
+        layout.addWidget(save_button)
+
+        self.setLayout(layout)
+
+    def populate_camera_list(self):
+        self.available_cameras = camera_utils.get_available_cameras()
+        current_camera_index = camera_utils.load_camera_setting()
+
+        if not self.available_cameras:
+            self.camera_list_widget.addItem("No cameras found.")
+            self.camera_list_widget.setEnabled(False)
+            return
+
+        for cam_index in self.available_cameras:
+            item = QListWidgetItem(f"Camera {cam_index}")
+            self.camera_list_widget.addItem(item)
+            if cam_index == current_camera_index:
+                item.setSelected(True)
+
+    def save_selection(self):
+        selected_items = self.camera_list_widget.selectedItems()
+        if selected_items:
+            selected_index_str = selected_items[0].text().replace("Camera ", "")
+            selected_index = int(selected_index_str)
+            camera_utils.save_camera_setting(selected_index)
+            self.accept()
+        else:
+            QMessageBox.warning(self, "No Selection", "Please select a camera.")
 
 
 class StyledButton(QPushButton):
@@ -106,6 +153,10 @@ class HandGestureRecognitionApp(QMainWindow):
         button_layout.addWidget(self.backspace_button)
         button_layout.addWidget(self.clear_button)
 
+        settings_button = StyledButton("Settings")
+        settings_button.clicked.connect(self.open_settings)
+        button_layout.addWidget(settings_button)
+
         sentence_layout.addWidget(title_label)
         sentence_layout.addWidget(self.sentence_display)
         sentence_layout.addLayout(button_layout)
@@ -134,7 +185,13 @@ class HandGestureRecognitionApp(QMainWindow):
         self.status_bar.showMessage("Ready. Hold a gesture to begin.")
 
     def setup_hand_recognition(self):
-        self.cap = cv.VideoCapture(0)
+        camera_index = camera_utils.load_camera_setting()
+        self.cap = cv.VideoCapture(camera_index, cv.CAP_V4L2)
+        if not self.cap.isOpened():
+            print(f"Error: Could not open camera {camera_index} in ui.py. Please check if camera is in use or drivers are installed.")
+            return
+        self.cap.set(cv.CAP_PROP_BUFFERSIZE, 1)
+        time.sleep(1) # Give camera time to initialize
         self.cap.set(cv.CAP_PROP_FRAME_WIDTH, self.VIDEO_WIDTH)
         self.cap.set(cv.CAP_PROP_FRAME_HEIGHT, self.VIDEO_HEIGHT)
 
@@ -253,6 +310,12 @@ class HandGestureRecognitionApp(QMainWindow):
     def clear_sentence(self):
         self.init_sentence_builder()
 
+    def open_settings(self):
+        dialog = CameraSettingsDialog(self)
+        if dialog.exec_():
+            # If settings were saved, re-initialize camera with new setting
+            self.setup_hand_recognition()
+
     def calc_landmark_list(self, image, landmarks):
         return [[min(int(lm.x * image.shape[1]), image.shape[1] - 1), min(int(lm.y * image.shape[0]), image.shape[0] - 1)] for lm in landmarks.landmark]
 
@@ -274,14 +337,27 @@ class HandGestureRecognitionApp(QMainWindow):
 
     # --- NEW: Updated to accept and display confidence ---
     def draw_info_text(self, image, brect, handedness, hand_sign_text, confidence):
-        cv.rectangle(image, (brect[0], brect[1]), (brect[2], brect[1] - 22), (0, 0, 0), -1)
+        # Define text properties
+        font = cv.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.8
+        font_thickness = 2
+        text_color = (255, 255, 255)  # White
+        bg_color = (0, 0, 0)      # Black
 
         info_text = f"{handedness.classification[0].label[0:]}: "
         if hand_sign_text != "None":
             info_text += f"{hand_sign_text} ({confidence:.2f})"
 
-        cv.putText(image, info_text, (brect[0] + 5, brect[1] - 4),
-                   cv.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv.LINE_AA)
+        # Get text size
+        (text_width, text_height), baseline = cv.getTextSize(info_text, font, font_scale, font_thickness)
+
+        # Draw background rectangle
+        cv.rectangle(image, (brect[0], brect[1] - text_height - baseline - 10),
+                     (brect[0] + text_width + 10, brect[1]), bg_color, -1)
+
+        # Draw text
+        cv.putText(image, info_text, (brect[0] + 5, brect[1] - baseline - 5),
+                   font, font_scale, text_color, font_thickness, cv.LINE_AA)
         return image
 
     def draw_landmarks(self, image, landmark_point):
