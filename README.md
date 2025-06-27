@@ -36,12 +36,12 @@ The model is trained to recognize the following 26 letters of the American Sign 
 
 The application follows a simple yet powerful pipeline:
 
-1.  **Camera Input:** The system captures video from your webcam using OpenCV.
-2.  **Hand Tracking:** [MediaPipe Hands](https://mediapipe.dev/solutions/hands) detects and tracks the 21 keypoints of the user's hand in real-time.
-3.  **Landmark Preprocessing:** The raw keypoint coordinates are normalized and processed to make them invariant to hand position, scale, and rotation. This ensures the model focuses only on the gesture's shape.
-4.  **Gesture Classification:** The preprocessed landmarks are fed into a trained TensorFlow Lite LSTM model, which classifies the gesture into one of the 27 predefined classes (A-Z, SPACE).
-5.  **Sentence Construction:** An intelligent engine analyzes the stream of predicted gestures. It uses a combination of gesture stability (holding a sign for a set duration) and a cooldown timer to decide when to append a character to the sentence.
-6.  **UI Display:** The recognized characters are displayed in a user-friendly interface built with PyQt5, allowing for easy reading, copying, and editing.
+1. **Camera Input:** The system captures video from your webcam using OpenCV.
+2. **Hand Tracking:** [MediaPipe Hands](https://mediapipe.dev/solutions/hands) detects and tracks the 21 keypoints of the user's hand in real-time.
+3. **Landmark Preprocessing:** The raw keypoint coordinates are normalized and processed to make them invariant to hand position, scale, and rotation. This ensures the model focuses only on the gesture's shape.
+4. **Gesture Classification:** The preprocessed landmarks are fed into a trained TensorFlow Lite LSTM model, which classifies the gesture into one of the 27 predefined classes (A-Z, SPACE).
+5. **Sentence Construction:** An intelligent engine analyzes the stream of predicted gestures. It uses a combination of gesture stability (holding a sign for a set duration) and a cooldown timer to decide when to append a character to the sentence.
+6. **UI Display:** The recognized characters are displayed in a user-friendly interface built with PyQt5, allowing for easy reading, copying, and editing.
 
 ---
 
@@ -52,42 +52,48 @@ Follow these instructions to get a copy of the project up and running on your lo
 ### Prerequisites
 
 You need Python 3.8+ installed on your system. You can check your Python version by running:
+
 ```bash
 python --version
 ```
 
 ### Installation
 
-1.  **Clone the Repository**
-    ```bash
-    git clone https://github.com/ishabrato/Visual-Voice
-    cd Visual-Voice
-    ```
-2.  **Create and Activate a Virtual Environment** (Recommended)
+1. **Clone the Repository**
 
-    **For Windows:**
-    ```bash
-    python -m venv venv
-    venv\Scripts\activate
-    ```
+   ```bash
+   git clone https://github.com/ishabrato/Visual-Voice && cd Visual-Voice
+   ```
+2. **Create and Activate a Virtual Environment** (Recommended)
 
-    **For macOS/Linux:**
-    ```bash
-    python3 -m venv venv
-    source venv/bin/activate
-    ```
-3.  **Install the Required Packages**
-    All dependencies are listed in the `requirements.txt` file.
-    ```bash
-    pip install -r requirements.txt
-    ```
+   **For Windows:**
+
+   ```bash
+   python -m venv venv
+   venv\Scripts\activate
+   ```
+
+   **For macOS/Linux:**
+
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate
+   ```
+3. **Install the Required Packages**
+   All dependencies are listed in the `requirements.txt` file.
+
+   ```bash
+   pip install -r requirements.txt
+   ```
 
 ### Running the Application
 
 To launch the main user interface, run the `ui.py` script:
+
 ```bash
 python ui.py
 ```
+
 The application window will open, and your webcam feed will appear. Hold your hand in front of the camera to begin forming sentences.
 
 ---
@@ -100,22 +106,22 @@ This project is designed to be extensible. You can improve the model or add new 
 
 Use the `app.py` script to log new gesture data. This script captures hand landmarks and saves them to a CSV file.
 
--   Run the script: `python app.py`
--   Press `k` to enter **Key Point Logging Mode**.
--   Press a number key (0-9) or a letter key (a-z) to set the class ID for the gesture you are about to record.
--   Make the gesture in front of the camera. The landmarks will be automatically appended to `model/keypoint_classifier/keypoint.csv`.
+- Run the script: `python app.py`
+- Press `k` to enter **Key Point Logging Mode**.
+- Press a number key (0-9) or a letter key (a-z) to set the class ID for the gesture you are about to record.
+- Make the gesture in front of the camera. The landmarks will be automatically appended to `model/keypoint_classifier/keypoint.csv`.
 
 ### 2. Model Training
 
 The Jupyter Notebook `keypoint_classification_EN.ipynb` contains the complete pipeline for training the LSTM model.
 
-1.  **Open the Notebook:** Use Jupyter Lab or Jupyter Notebook to open `keypoint_classification_EN.ipynb`.
-2.  **Run the Cells:** Execute the cells in order to:
-    -   Load the collected landmark data from the CSV file.
-    -   Preprocess and reshape the data for the LSTM model.
-    -   Define, compile, and train the model.
-    -   Evaluate the model's performance with a classification report and confusion matrix.
-    -   Convert the final Keras model (`.keras`) to a TensorFlow Lite model (`.tflite`) for efficient inference in the application.
+1. **Open the Notebook:** Use Jupyter Lab or Jupyter Notebook to open `keypoint_classification_EN.ipynb`.
+2. **Run the Cells:** Execute the cells in order to:
+   - Load the collected landmark data from the CSV file.
+   - Preprocess and reshape the data for the LSTM model.
+   - Define, compile, and train the model.
+   - Evaluate the model's performance with a classification report and confusion matrix.
+   - Convert the final Keras model (`.keras`) to a TensorFlow Lite model (`.tflite`) for efficient inference in the application.
 
 ---
 
@@ -123,20 +129,20 @@ The Jupyter Notebook `keypoint_classification_EN.ipynb` contains the complete pi
 
 This project provides a solid foundation. Here are some ideas for taking it to the next level:
 
--   **Data Diversity & Augmentation:**
-    -   Collect data from multiple users in various lighting conditions.
-    -   Apply data augmentation techniques (rotation, scaling, noise) to create a more robust and generalized model.
--   **Add an "Idle" or "Nothing" Class:**
-    -   Train the model to recognize when no specific gesture is being made. This will significantly reduce flickering between letters and improve system stability.
--   **Recognize Dynamic Gestures:**
-    -   Utilize the `PointHistoryClassifier` (already included in the project structure) to train and recognize dynamic gestures like "delete" (a swipe motion) or "confirm" (a fist closing).
--   **Text-to-Speech (TTS):**
-    -   Integrate a TTS engine (e.g., gTTS, pyttsx3) to give a "voice" to the translated text, truly fulfilling the project's name.
--   **UI/UX Enhancements:**
-    -   Move the camera and inference loop to a separate `QThread` to prevent the UI from lagging on less powerful machines.
-    -   Add more visual cues and animations to improve the user experience.
--   **Expand the Vocabulary:**
-    -   Go beyond single letters and train the model to recognize common words or phrases.
+- **Data Diversity & Augmentation:**
+  - Collect data from multiple users in various lighting conditions.
+  - Apply data augmentation techniques (rotation, scaling, noise) to create a more robust and generalized model.
+- **Add an "Idle" or "Nothing" Class:**
+  - Train the model to recognize when no specific gesture is being made. This will significantly reduce flickering between letters and improve system stability.
+- **Recognize Dynamic Gestures:**
+  - Utilize the `PointHistoryClassifier` (already included in the project structure) to train and recognize dynamic gestures like "delete" (a swipe motion) or "confirm" (a fist closing).
+- **Text-to-Speech (TTS):**
+  - Integrate a TTS engine (e.g., gTTS, pyttsx3) to give a "voice" to the translated text, truly fulfilling the project's name.
+- **UI/UX Enhancements:**
+  - Move the camera and inference loop to a separate `QThread` to prevent the UI from lagging on less powerful machines.
+  - Add more visual cues and animations to improve the user experience.
+- **Expand the Vocabulary:**
+  - Go beyond single letters and train the model to recognize common words or phrases.
 
 ---
 
@@ -150,6 +156,6 @@ This project is licensed under the MIT License.
 
 ## 🙏 Acknowledgements
 
--   [MediaPipe](https://mediapipe.dev/) for the incredible hand tracking solution.
--   [TensorFlow](https://www.tensorflow.org/) for the powerful deep learning framework.
--   [OpenCV](https://opencv.org/) for the versatile computer vision library.
+- [MediaPipe](https://mediapipe.dev/) for the incredible hand tracking solution.
+- [TensorFlow](https://www.tensorflow.org/) for the powerful deep learning framework.
+- [OpenCV](https://opencv.org/) for the versatile computer vision library.
